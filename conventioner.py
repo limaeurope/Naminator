@@ -9,7 +9,6 @@ def GetConvention(CFile):
         ConventionTemplate = xlrd.open_workbook(CFile)
         WorkSheet = ConventionTemplate.sheet_by_index(11)
 
-
         DropVal1 = WorkSheet.col_values(0)
         DropVal2 = WorkSheet.col_values(1)
         DropVal3 = WorkSheet.col_values(3)
@@ -47,9 +46,6 @@ def GetConvention(CFile):
 
         CBox_Master = [[CBox_List],[CBox_values1, CBox_values2, CBox_values3, CBox_values4, CBox_values5, CBox_values6, CBox_values7, CBox_values8, CBox_values9, CBox_values10]]
 
-        #print(CBox_name1)
-
-
         Choice1 = ComboBoxT(CBox_name1, CBox_values1)
         Choice2 = ComboBoxT(CBox_name2, CBox_values2)
         Choice3 = ComboBoxT(CBox_name3, CBox_values3)
@@ -74,3 +70,4 @@ def GetConvention(CFile):
         ]
 
         return(CBox_Master)
+
