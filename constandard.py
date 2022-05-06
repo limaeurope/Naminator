@@ -27,17 +27,21 @@ class Convention:
     sheetAll = None
     sheetRoleID = None
     sheetRole = None
+    _sSheet = 0
+    sheets = None
 
-    def __new__(cls, templateFile, *args, **kwargs):
-        if not Convention.singleton:
+    def __new__(cls, templateFile, p_sSheet, *args, **kwargs):
+        if not cls.singleton:
             if not templateFile:
                 return None
-            Convention.singleton = super().__new__(cls)
+            cls.singleton = super().__new__(cls)
             try:
-                Convention.template = xlrd.open_workbook(templateFile, formatting_info=True)
-            except (FileNotFoundError, PermissionError):
+                cls.template = xlrd.open_workbook(templateFile, formatting_info=True)
+                cls._sSheet = p_sSheet
+                cls.sheets = [s.name for s in cls.template.sheets()]
+            except (FileNotFoundError, PermissionError, IndexError):
                 return None
-        return Convention.singleton
+        return cls.singleton
 
     def getConvention(self, selectedValue, keyColIndex, valueColIndex):
         try:
@@ -46,14 +50,25 @@ class Convention:
         except Exception:
             return None
 
-    def getFileName(self, p_values):
+    def getFileName(self, p_source, p_values):
         """To be overridden"""
         pass
 
+    @classmethod
+    def reset(cls):
+        cls.singleton = None
+        cls.template = None
+        cls.sheetAll = None
+        cls.sheetRoleID = None
+        cls.sheetRole = None
+        cls._sSheet = 0
+        cls.sheets = None
+
+
 
 class GeneralConvention(Convention):
-    def __new__(cls, templateFile, *args, **kwargs):
-        Convention.singleton = super().__new__(cls, templateFile)
+    def __new__(cls, templateFile, p_sSheet, *args, **kwargs):
+        Convention.singleton = super().__new__(cls, templateFile, p_sSheet)
         Convention.sheetRole = Convention.template.sheet_by_index(6)
         Convention.sheetRoleID = Convention.template.sheet_by_index(7)
         Convention.sheetAll = Convention.template.sheet_by_index(11)
@@ -108,7 +123,7 @@ class GeneralConvention(Convention):
 
         return OutListSTR, D_FlipDocType
 
-    def getFileName(self, p_values):
+    def getFileName(self, p_source, p_values):
         IndexStart = int(p_values["-CustNUM-"])
 
         _sIndexStart = str(IndexStart).zfill(3)
@@ -125,60 +140,82 @@ class GeneralConvention(Convention):
         suffixes = "-" + self.getStatus(p_values[CBox_Rev])
         suffixes += "-" + p_values[CBox_name9]
 
-        _ext = os.path.splitext(p_values["-FILELIST-"][0])[1]
-        _origName = os.path.splitext(p_values["-FILELIST-"][0])[0]
+        _ext = os.path.splitext(p_source)[1]
+        _origName = os.path.splitext(p_source)[0]
         if p_values["-KeepName-"] == False:
             return prefixes + p_values["-CustName-"] + suffixes + _ext
         if p_values["-KeepName-"] == True:
             return prefixes + _origName + suffixes + _ext
 
 
-class StructuralDesignerData():
-    def __init__(self, p_iRow):
-        self.nameEnglish = p_iRow[_Q_].value
-        self.nameHungarian = p_iRow[_R_].value
+class NameIntPair:
+    def __init__(self, p_value, p_number):
+        self.value = p_value
+        self.number = p_number
+
+    def __str__(self):
+        return self.value
+
+
+def cellVal(p_row, p_sStartCol:NameIntPair, p_inc:int)->str:
+    if isinstance(p_row[p_sStartCol.number + p_inc].value, str):
+        return p_row[p_sStartCol.number + p_inc].value
+    else:
+        return "{:.0f}".format(p_row[p_sStartCol.number + p_inc].value)
+
 
 class StructuralDesignerConvention(Convention):
     _dict = {}
+    iCodeStartCol = _C_
+    iNameCol = _Q_
+    iHeaderRow = 1              #2nd row of sheet
+    headersList = []
 
-    def __new__(cls, templateFile, *args, **kwargs):
-        if not Convention.singleton:
+    def __new__(cls, templateFile, p_sSheet, *args, **kwargs):
+        if not cls.singleton:
             if not templateFile:
                 return None
-            Convention.singleton = super().__new__(cls, templateFile)
-            # try:
-            #     Convention.template = xlrd.open_workbook(templateFile, formatting_info=True)
-            # except (FileNotFoundError, PermissionError):
-            #     return None
-        return Convention.singleton
+            cls.singleton = super().__new__(cls, templateFile, p_sSheet)
+        return cls.singleton
 
-    def __init__(self, templateFile):
-        Convention.sheetAll = Convention.template.sheet_by_index(1)
+    def __init__(self, templateFile, p_sSheet, p_sCodeStartCol, p_sNameCol):
+        try:
+            if p_sSheet:
+                StructuralDesignerConvention.sheetAll = StructuralDesignerConvention.template.sheet_by_name(p_sSheet)
+            else:
+                StructuralDesignerConvention.sheetAll = StructuralDesignerConvention.template.sheet_by_index(0)
+            StructuralDesignerConvention.iCodeStartCol = p_sCodeStartCol
+            StructuralDesignerConvention.iNameCol = p_sNameCol
+            _headers = zip(StructuralDesignerConvention.sheetAll.row(StructuralDesignerConvention.iHeaderRow), range(StructuralDesignerConvention.sheetAll.ncols))
+            StructuralDesignerConvention.headersList = [NameIntPair(h[0].value, h[1]) for h in _headers if h[0].ctype == xlrd.XL_CELL_TEXT]
 
-        for row in Convention.sheetAll.get_rows():
-            try:
-                _index = ""
-                _index += row[_C_].value + row[_D_].value
-                _index += row[_E_].value + row[_F_].value
-                _index += row[_G_].value + row[_H_].value
-                _index += row[_I_].value + row[_J_].value
-                _index += "{:.0f}".format(row[_K_].value) + row[_L_].value
-                _index += row[_M_].value + row[_N_].value
-                _index += row[_O_].value + row[_P_].value
+            for row in StructuralDesignerConvention.sheetAll.get_rows():
+                try:
+                    self.pre = ""
+                    self.pre += cellVal(row, p_sCodeStartCol, -2) + cellVal(row, p_sCodeStartCol, -1)
+                    self.pre += cellVal(row, p_sCodeStartCol, 0) + cellVal(row, p_sCodeStartCol, 1)
+                    self.pre += cellVal(row, p_sCodeStartCol, 2) + cellVal(row, p_sCodeStartCol, 3)
+                    self.pre += cellVal(row, p_sCodeStartCol, 4) + cellVal(row, p_sCodeStartCol, 5)
+                    self.pre += cellVal(row, p_sCodeStartCol, 6) + cellVal(row, p_sCodeStartCol, 7)
+                    self.pre += cellVal(row, p_sCodeStartCol, 8) + cellVal(row, p_sCodeStartCol, 9)
+                    self.pre += cellVal(row, p_sCodeStartCol, 10) + " "                                  #row[_P_].value
 
-                if _index != 'PhaseDisciplineGroupBuildingNumberRevision':
-                    StructuralDesignerConvention._dict[_index] = StructuralDesignerData(row)
-            except:
-                continue
+                    if self.pre != 'PhaseDisciplineGroupBuildingNumberRevision':
+                        StructuralDesignerConvention._dict[self.pre] = row[p_sNameCol.number].value
+                except:
+                    pass
+        except:
+            pass
 
+    def getFileName(self, p_source, p_values):
+        _fileName = os.path.splitext(p_source)[0]
+        _fileExt = os.path.splitext(p_source)[1]
 
-    def getFileName(self, p_values, p_bHungarian = True):
-        if p_bHungarian:
-            _fileName = p_values["-FILELIST-"][0]
+        for pre in StructuralDesignerConvention._dict.keys():
+            if _fileName.startswith(pre):
+                return pre + StructuralDesignerConvention._dict[pre] + _fileExt
+        return p_source
 
-            for pre in StructuralDesignerConvention._dict.keys():
-                if _fileName.startswith(pre):
-                    print(pre)
-
-            # return StructuralDesignerConvention._dict[]
-
+    @staticmethod
+    def getIndexByKey(p_key:str)->int:
+        return next((p for p in StructuralDesignerConvention.headersList if p.contains(p_key)), 0)
